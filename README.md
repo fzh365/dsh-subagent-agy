@@ -21,7 +21,7 @@ The task never enters argv, so long prompts and prompts starting with `-` are sa
 
 ## Install
 
-Requires a working `agy` (on `PATH`, or in `~/.local/bin`; see [Linux notes](#linux-notes)), already authenticated on the host. Verified on **agy 1.4.11** (Linux x86-64); 1.4.12 and 1.5.0 are untested. The plugin does not install agy, log in, pick a model, or create/migrate agy's `~/.gemini` state.
+Requires a working `agy` (on `PATH`; otherwise `~/.local/bin` on Linux or the Antigravity app's `%USERPROFILE%\.gemini\bin` on Windows; see [Linux notes](#linux-notes) and [Windows notes](#windows-notes)), already authenticated on the host. Verified on **agy 1.4.11** (Linux x86-64); smoke-tested on Windows x86-64 with agy 1.5.8, with the gaps listed in the Windows notes. The plugin does not install agy, log in, pick a model, or create/migrate agy's `~/.gemini` state.
 
 Install the package as a profile bundle:
 
@@ -78,6 +78,16 @@ To keep the provider but hide the tool, disable the `tool-subagent-agy` row. The
   { "permissions": { "deny": ["command(rm -rf)", "command(sudo)", "write_file(.git/)"] } }
   ```
 - **Conversation files accumulate.** Every run, headless included, saves a conversation under `~/.gemini/antigravity-cli/conversations/<id>.db` (plus `brain/<id>/`), roughly 0.3–0.5 MB each. agy 1.4.11 has no flag to disable this. The plugin reports each run's conversation id in failure diagnostics and `agy_runs`, so you can clean up selectively.
+
+## Windows notes
+
+- **Executable lookup.** A bare `command` (default `agy`) is looked up on the child PATH first; agy's standalone installer (`%LOCALAPPDATA%\agy\bin`) adds itself to PATH, so the plugin does not search that dir. If PATH misses, the plugin falls back to `%USERPROFILE%\.gemini\bin\agy.exe`, the copy the Antigravity app keeps (USERPROFILE from `env.USERPROFILE`, else the host's; `HOME` is not used). Without the app that file does not exist and the run fails with the PATH dirs and fallback it searched. A `command` with `\`, `/` or a drive letter (`.\agy.exe`, `bin\agy.exe`, `D:\tools\agy.exe`) is explicit and never falls back. Find the path with `where.exe agy` or `Get-Command agy` as the agy user.
+- **PATH is read once.** A long-running dsh keeps the PATH it started with. If agy is installed after dsh started and the app copy is absent, restart dsh.
+- **Two installs can drift.** The app's `.gemini\bin\agy.exe` is updated by the app; the standalone copy is updated by `agy update`. Whichever comes first on PATH is the one that runs, so the two can be different versions. Pin `command` to one absolute path if that matters.
+- **Cold start is slow.** agy on Windows takes about 6 s to emit `init` and about 9 s to its first step. Keep `maxRunMs` well above that; a cap hit before `init` is reported as a startup stall rather than a stuck task.
+- **Platform labels differ.** The shell tool is reported as `Bash` on Windows and `RunCommand` on Linux, in `deniedTools` and diagnostics alike.
+- **Process-tree termination depends on dsh.** Cancellation and caps call `ctx.subprocess`'s `terminate()`; whether agy's grandchildren (shells, tools) are reaped on Windows depends on the dsh host (Job Object / `taskkill /T`). The smoke harness uses plain `child.kill()`, so it does not prove grandchild cleanup on Windows.
+- **Not yet verified on Windows:** `dangerouslySkipPermissions` actually allowing shell, `--add-dir`, non-ASCII input (Chinese output decodes fine), long-run cancellation through the real subprocess service, and the settings card in the app.
 
 ## Configuration
 
@@ -144,7 +154,7 @@ This is observability only: the session header's lineage dropdown still lists on
 - **No human approval path** — gated tools are denied unless `dangerouslySkipPermissions` is on; tasks needing interactive input fail.
 - **Final text only** — agy reasoning, tool traffic, usage, and workspace diffs stay product-local. stderr is piped and forwarded to the host's stderr; the last 8 KiB is kept per run, and on failure the diagnostic carries the exit code/signal, conversation id, step count, last (or still-running) tool, the parsed `AGY_ERROR: {...}` line, and a stderr tail. A completed run whose `result` lists `denied_actions` keeps its exact answer and adds a model-visible note naming the denied tools.
 - **Wall-clock bounds** — `maxRunMs` (default 2 hours) is the plugin's wall-clock backstop; `timeout` is agy's own `--print-timeout`; `idleTimeoutMs` is an opt-in stdout silence watchdog (off by default, because agy is silent while a tool runs). Cancelling the delegation stops a run immediately. Plugin stop or hot-reload terminates every in-flight agy process tree.
-- **Protocol pinning** — verified on `agy 1.4.11`; 1.4.12 and 1.5.0 are untested. agy updates itself silently, so re-run `node test/smoke.mjs` after an upgrade. Builds without `--input-format stream-json` are unsupported.
+- **Protocol pinning** — verified on `agy 1.4.11`; 1.4.12 and 1.5.0 are untested. agy updates itself silently, so re-run `node test/smoke.mjs` after an upgrade. The smoke test allows for platform differences (shell tool label, a longer run cap on Windows for the slower cold start). Builds without `--input-format stream-json` are unsupported.
 
 ## Tests
 

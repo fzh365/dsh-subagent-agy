@@ -15,7 +15,7 @@ export declare const inject: string[]
 
 /** Deployment-owned environment, CLI defaults, and process-release bound. */
 export interface Config {
-  /** Executable name or absolute path; a bare name falls back to `$HOME/.local/bin/<name>` when PATH misses. */
+  /** Executable name or absolute path; a bare name falls back to `$HOME/.local/bin/<name>` (Windows: `%USERPROFILE%\.gemini\bin\<name>.exe`) when PATH misses. */
   command?: string
   /** Explicit environment entries layered over the subprocess seam's scrubbed parent environment. */
   env?: Record<string, string>
@@ -128,7 +128,7 @@ export declare function describeAgyFailure(parts: {
 
 /**
  * Resolve the agy executable: an explicit path as configured; a bare name on
- * PATH, then `$HOME/.local/bin/<name>`; otherwise a diagnostic naming what was
+ * PATH, then `$HOME/.local/bin/<name>` (Windows: `%USERPROFILE%\.gemini\bin\<name>.exe`); otherwise a diagnostic naming what was
  * searched and how to fix it. An aborted signal rejects before any lookup.
  */
 export declare function resolveAgyExecutable(
@@ -136,7 +136,7 @@ export declare function resolveAgyExecutable(
   command: string,
   env?: Record<string, string>,
   signal?: AbortSignal,
-  options?: { home?: string; path?: string; onFallback?: (resolved: string) => void },
+  options?: { home?: string; path?: string; platform?: string; onFallback?: (resolved: string) => void },
 ): Promise<string>
 
 /** Labels of the tool actions agy auto-denied, deduplicated. */

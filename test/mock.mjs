@@ -674,6 +674,32 @@ await test('the wall-clock cap stops a run that keeps emitting events, as an err
   }
 })
 
+await test('a cap hit before agy init says it was still starting up', async () => {
+  const child = fakeChild([], 0, { holdOpen: true })
+  const terminate = child.terminate
+  child.terminate = () => terminate()
+  const run = await startAgyRun(request('task'), runSpec(child, { maxRunMs: 80 }))
+  try {
+    const result = await run.result
+    assert.equal(result.stopReason, 'error', JSON.stringify(result))
+    assert.match(result.diagnostic, /hit the 80ms run cap/)
+    assert.match(result.diagnostic, /still starting up \(no init event yet\)/)
+  } finally {
+    await run.dispose()
+  }
+})
+
+await test('a cap hit after init does not claim a slow start', async () => {
+  const child = loopingChild()
+  const run = await startAgyRun(request('loop'), runSpec(child, { maxRunMs: 80 }))
+  try {
+    const result = await run.result
+    assert.doesNotMatch(result.diagnostic, /still starting up/)
+  } finally {
+    await run.dispose()
+  }
+})
+
 await test('maxRunMs 0 disables the cap', async () => {
   const child = loopingChild()
   const run = await startAgyRun(request('loop'), runSpec(child, { maxRunMs: 0 }))
@@ -772,28 +798,28 @@ function lookupService(known, failure) {
 }
 
 await test('a bare command missing from PATH falls back to $HOME/.local/bin', async () => {
-  const service = lookupService(['/home/fan/.local/bin/agy'])
+  const service = lookupService(['/home/user/.local/bin/agy'])
   const fallbacks = []
-  const resolved = await resolveAgyExecutable(service, 'agy', { HOME: '/home/fan' }, undefined, { onFallback: (value) => fallbacks.push(value) })
-  assert.equal(resolved, '/home/fan/.local/bin/agy')
-  assert.deepEqual(service.calls, ['agy', '/home/fan/.local/bin/agy'], 'PATH first, then the fallback')
-  assert.deepEqual(fallbacks, ['/home/fan/.local/bin/agy'])
+  const resolved = await resolveAgyExecutable(service, 'agy', { HOME: '/home/user' }, undefined, { platform: 'linux', onFallback: (value) => fallbacks.push(value) })
+  assert.equal(resolved, '/home/user/.local/bin/agy')
+  assert.deepEqual(service.calls, ['agy', '/home/user/.local/bin/agy'], 'PATH first, then the fallback')
+  assert.deepEqual(fallbacks, ['/home/user/.local/bin/agy'])
 })
 
 await test('a command found on PATH never touches the fallback', async () => {
   const service = lookupService(['agy'])
-  assert.equal(await resolveAgyExecutable(service, 'agy', { HOME: '/home/fan' }), 'agy')
+  assert.equal(await resolveAgyExecutable(service, 'agy', { HOME: '/home/user' }, undefined, { platform: 'linux' }), 'agy')
   assert.deepEqual(service.calls, ['agy'])
 })
 
 await test('when neither PATH nor the fallback has agy, the error names what was searched and how to fix it', async () => {
   const service = lookupService([])
   await assert.rejects(
-    resolveAgyExecutable(service, 'agy', {}, undefined, { home: '/home/fan', path: '/usr/local/bin:/usr/bin:/bin' }),
+    resolveAgyExecutable(service, 'agy', {}, undefined, { platform: 'linux', home: '/home/user', path: '/usr/local/bin:/usr/bin:/bin' }),
     (error) => {
       assert.match(error.message, /agy executable not found/)
       assert.match(error.message, /command "agy" on PATH \(3 dirs: \/usr\/local\/bin, \/usr\/bin, \/bin\)/)
-      assert.match(error.message, /the fallback \/home\/fan\/\.local\/bin\/agy/)
+      assert.match(error.message, /the fallback \/home\/user\/\.local\/bin\/agy/)
       assert.match(error.message, /set the plugin config `command` to the absolute path/)
       assert.match(error.message, /add ~\/\.local\/bin to the dsh service PATH/)
       assert.match(error.message, /same user\/HOME as the agy login/)
@@ -801,16 +827,16 @@ await test('when neither PATH nor the fallback has agy, the error names what was
       return true
     },
   )
-  assert.deepEqual(service.calls, ['agy', '/home/fan/.local/bin/agy'])
+  assert.deepEqual(service.calls, ['agy', '/home/user/.local/bin/agy'])
 })
 
 await test('an explicit executable path wins and is never replaced by the fallback', async () => {
-  const found = lookupService(['/opt/agy/bin/agy', '/home/fan/.local/bin/agy'])
-  assert.equal(await resolveAgyExecutable(found, '/opt/agy/bin/agy', { HOME: '/home/fan' }), '/opt/agy/bin/agy')
+  const found = lookupService(['/opt/agy/bin/agy', '/home/user/.local/bin/agy'])
+  assert.equal(await resolveAgyExecutable(found, '/opt/agy/bin/agy', { HOME: '/home/user' }, undefined, { platform: 'linux' }), '/opt/agy/bin/agy')
   assert.deepEqual(found.calls, ['/opt/agy/bin/agy'])
-  const missing = lookupService(['/home/fan/.local/bin/agy'])
+  const missing = lookupService(['/home/user/.local/bin/agy'])
   await assert.rejects(
-    resolveAgyExecutable(missing, '/opt/agy/bin/agy', { HOME: '/home/fan' }),
+    resolveAgyExecutable(missing, '/opt/agy/bin/agy', { HOME: '/home/user' }, undefined, { platform: 'linux' }),
     /configured agy executable "\/opt\/agy\/bin\/agy" does not exist or is not executable/,
   )
   assert.deepEqual(missing.calls, ['/opt/agy/bin/agy'], 'no fallback for an explicit path')
@@ -818,7 +844,7 @@ await test('an explicit executable path wins and is never replaced by the fallba
 
 await test('a provider failure other than not-found propagates without a fallback', async () => {
   const service = lookupService([], new Error('provider offline'))
-  await assert.rejects(resolveAgyExecutable(service, 'agy', { HOME: '/home/fan' }), /provider offline/)
+  await assert.rejects(resolveAgyExecutable(service, 'agy', { HOME: '/home/user' }), /provider offline/)
   assert.deepEqual(service.calls, ['agy'])
 })
 
@@ -836,22 +862,73 @@ await test('an already-cancelled request short-circuits before executable resolu
 })
 
 await test('the provider spawns the fallback executable and logs it once', async () => {
-  const service = lookupService(['/home/fan/.local/bin/agy'])
+  const windows = process.platform === 'win32'
+  const fallback = windows ? 'C:\\Users\\user\\.gemini\\bin\\agy.exe' : '/home/user/.local/bin/agy'
+  const service = lookupService([fallback])
   const argv = []
   const infos = []
   const resultEvent = JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'OK' } })
   const host = providerHost((spec) => { argv.push(spec.argv[0]); return fakeChild([resultEvent]) })
   host.subprocess.resolveExecutable = service.resolveExecutable
   host.logger.info = (message) => infos.push(message)
-  apply(host, Config({ env: { HOME: '/home/fan' } }))
+  apply(host, Config({ env: windows ? { USERPROFILE: 'C:\\Users\\user' } : { HOME: '/home/user' } }))
   for (let i = 0; i < 2; i += 1) {
     const run = await host.provider.start(request('task'))
     assert.equal((await run.result).stopReason, 'completed')
     await run.dispose()
   }
-  assert.deepEqual(argv, ['/home/fan/.local/bin/agy', '/home/fan/.local/bin/agy'])
+  assert.deepEqual(argv, [fallback, fallback])
   assert.equal(infos.length, 1)
-  assert.match(infos[0], /"agy" is not on PATH; using \/home\/fan\/\.local\/bin\/agy/)
+  assert.ok(infos[0].includes(`"agy" is not on PATH; using ${fallback}`), infos[0])
+})
+
+await test('on Windows a bare command falls back to %USERPROFILE%\\.gemini\\bin\\agy.exe', async () => {
+  const fallback = 'C:\\Users\\user\\.gemini\\bin\\agy.exe'
+  const service = lookupService([fallback])
+  const resolved = await resolveAgyExecutable(service, 'agy', { USERPROFILE: 'C:\\Users\\user', HOME: '/ignored' }, undefined, { platform: 'win32' })
+  assert.equal(resolved, fallback)
+  assert.deepEqual(service.calls, ['agy', fallback], 'PATH first, then the app copy; HOME is not used on Windows')
+})
+
+await test('on Windows a command that already has an extension keeps it in the fallback', async () => {
+  const service = lookupService([])
+  await assert.rejects(resolveAgyExecutable(service, 'agy.exe', { USERPROFILE: 'C:\\Users\\user' }, undefined, { platform: 'win32' }))
+  assert.deepEqual(service.calls, ['agy.exe', 'C:\\Users\\user\\.gemini\\bin\\agy.exe'])
+})
+
+await test('on Windows the not-found error gives Windows fixes and a semicolon PATH summary', async () => {
+  const service = lookupService([])
+  await assert.rejects(
+    resolveAgyExecutable(service, 'agy', {}, undefined, { platform: 'win32', home: 'C:\\Users\\user', path: 'C:\\Windows\\system32;C:\\Windows' }),
+    (error) => {
+      assert.match(error.message, /command "agy" on PATH \(2 dirs: C:\\Windows\\system32, C:\\Windows\)/)
+      assert.ok(error.message.includes('the fallback C:\\Users\\user\\.gemini\\bin\\agy.exe'), error.message)
+      assert.match(error.message, /where\.exe agy/)
+      assert.match(error.message, /Get-Command agy/)
+      assert.match(error.message, /restart dsh/)
+      assert.doesNotMatch(error.message, /command -v|~\/\.local\/bin/)
+      return true
+    },
+  )
+})
+
+await test('on Windows backslash, relative, and drive paths count as explicit and never fall back', async () => {
+  for (const command of ['.\\agy.exe', 'bin\\agy.exe', 'C:agy.exe', 'D:\\tools\\agy.exe', './agy']) {
+    const service = lookupService(['C:\\Users\\user\\.gemini\\bin\\agy.exe'])
+    await assert.rejects(
+      resolveAgyExecutable(service, command, { USERPROFILE: 'C:\\Users\\user' }, undefined, { platform: 'win32' }),
+      /configured agy executable .* does not exist/,
+    )
+    assert.deepEqual(service.calls, [command], `${command} must not fall back`)
+  }
+})
+
+await test('with USERPROFILE unset on Windows the error says so', async () => {
+  const service = lookupService([])
+  await assert.rejects(
+    resolveAgyExecutable(service, 'agy', {}, undefined, { platform: 'win32', home: '' }),
+    /no fallback \(USERPROFILE is unset\)/,
+  )
 })
 
 console.log(`\n${passed} mock tests passed`)

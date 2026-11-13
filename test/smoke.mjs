@@ -10,6 +10,12 @@ import { join } from 'node:path'
 import { buildAgyArgv, createRunRegistry, startAgyRun } from '../lib/index.js'
 import { localSpawn } from './harness.mjs'
 
+// Platform differences seen on real agy builds: Windows names the shell tool
+// Bash (Linux: RunCommand) and cold-starts in ~6s before init, ~9s to the first
+// step, so a short cap would kill the run before a conversation id exists.
+const SHELL_TOOL = /^(RunCommand|Bash)$/
+const CAP_MS = process.platform === 'win32' ? 15_000 : 4_000
+
 const config = {
   command: 'agy',
   env: {},
@@ -124,13 +130,15 @@ try {
       const result = await run.result
       const [record] = registry.list(parent.id)
       assert.ok(record.conversationId.length > 0, 'conversation id recorded')
-      assert.deepEqual(record.deniedTools, ['RunCommand'], JSON.stringify(record))
+      // agy names the shell tool RunCommand on Linux and Bash on Windows.
+      assert.equal(record.deniedTools.length, 1, JSON.stringify(record))
+      assert.match(record.deniedTools[0], SHELL_TOOL, JSON.stringify(record))
       assert.ok(typeof result.diagnostic === 'string', JSON.stringify(result))
       if (result.stopReason === 'completed') {
-        assert.match(result.diagnostic, /auto-denied .*RunCommand/)
+        assert.match(result.diagnostic, /auto-denied .*(RunCommand|Bash)/)
       } else {
         assert.equal(result.stopReason, 'error', JSON.stringify(result))
-        assert.match(result.diagnostic, /denied tools: RunCommand/)
+        assert.match(result.diagnostic, /denied tools: (RunCommand|Bash)/)
         assert.match(result.diagnostic, new RegExp(`conversation: ${record.conversationId}`))
         assert.match(result.diagnostic, /agy stderr \(tail\)/)
       }
@@ -158,12 +166,12 @@ try {
   await test('the wall-clock cap terminates a real run as an error with run facts', async () => {
     const run = await startAgyRun(
       { cwd: workspace, prompt: [{ type: 'text', text: 'Write a 3000 word essay about rivers.' }], signal: new AbortController().signal },
-      { ...spec(workspace), maxRunMs: 4000, forwardStderr: false },
+      { ...spec(workspace), maxRunMs: CAP_MS, forwardStderr: false },
     )
     try {
       const result = await run.result
       assert.equal(result.stopReason, 'error', JSON.stringify(result))
-      assert.match(result.diagnostic, /hit the 4000ms run cap \(maxRunMs\)/)
+      assert.match(result.diagnostic, new RegExp(`hit the ${String(CAP_MS)}ms run cap \\(maxRunMs\\)`))
       assert.match(result.diagnostic, /conversation: [0-9a-f-]{36}/)
     } finally {
       await run.dispose()

@@ -21,7 +21,7 @@
 
 ## 安装
 
-要求宿主机上有可用的 `agy`（在 `PATH` 上或 `~/.local/bin` 中，见 [Linux 说明](#linux-说明)）且已完成登录。已在 **agy 1.4.11**（Linux x86-64）上验证；1.4.12 与 1.5.0 未测试。插件不安装 agy、不登录、不选模型、不创建或迁移 agy 的 `~/.gemini` 状态。
+要求宿主机上有可用的 `agy`（在 `PATH` 上；否则 Linux 查 `~/.local/bin`，Windows 查 Antigravity 应用的 `%USERPROFILE%\.gemini\bin`，见 [Linux 说明](#linux-说明) 和 [Windows 说明](#windows-说明)）且已完成登录。已在 **agy 1.4.11**（Linux x86-64）上验证；Windows x86-64 上用 agy 1.5.8 跑过 smoke，未覆盖项见 Windows 说明。插件不安装 agy、不登录、不选模型、不创建或迁移 agy 的 `~/.gemini` 状态。
 
 作为 profile bundle 安装：
 
@@ -78,6 +78,16 @@ pnpm add dsh-subagent-agy
   { "permissions": { "deny": ["command(rm -rf)", "command(sudo)", "write_file(.git/)"] } }
   ```
 - **会话文件会累积。** 每次运行（包括无头运行）都会在 `~/.gemini/antigravity-cli/conversations/<id>.db` 保存一个会话（另有 `brain/<id>/`），每个约 0.3–0.5 MB。agy 1.4.11 没有关闭它的选项。插件会在失败诊断和 `agy_runs` 中给出每次运行的会话 id，方便按需清理。
+
+## Windows 说明
+
+- **可执行文件查找。** `command` 为裸命令名（默认 `agy`）时先在子进程 PATH 中查找；agy 独立安装器（`%LOCALAPPDATA%\agy\bin`）安装时会自己加进 PATH，所以插件不额外查这个目录。PATH 中找不到时，回退到 Antigravity 应用自带的 `%USERPROFILE%\.gemini\bin\agy.exe`（USERPROFILE 优先取 `env.USERPROFILE`，否则取宿主的；不使用 `HOME`）。没装应用时这个文件不存在，运行失败，错误中列出查过的 PATH 目录和回退路径。`command` 含 `\`、`/` 或盘符（`.\agy.exe`、`bin\agy.exe`、`D:\tools\agy.exe`）时视为显式路径，不回退。可以用 agy 登录用户执行 `where.exe agy` 或 `Get-Command agy` 查看路径。
+- **PATH 只在启动时读取。** 长时间运行的 dsh 沿用启动时的 PATH。dsh 启动后才安装 agy、又没有应用副本时，需要重启 dsh。
+- **两份安装可能版本分叉。** 应用的 `.gemini\bin\agy.exe` 跟着应用更新，独立副本靠 `agy update` 更新。PATH 中排在前面的那份才会被运行，两者版本可能不同。在意版本时把 `command` 固定为某个绝对路径。
+- **冷启动较慢。** Windows 上 agy 约 6 秒才发出 `init`，约 9 秒才有第一步。`maxRunMs` 要留足余量；在 `init` 之前触发上限时，诊断会注明“仍在启动”，而不是任务卡住。
+- **平台标签不同。** shell 工具在 Windows 上叫 `Bash`，在 Linux 上叫 `RunCommand`，`deniedTools` 和诊断里都是如此。
+- **进程树回收取决于 dsh。** 取消和上限都调用 `ctx.subprocess` 的 `terminate()`；Windows 上 agy 派生的 shell、工具等孙进程能否被回收，取决于 dsh 宿主的实现（Job Object / `taskkill /T`）。smoke 用的是原生 `child.kill()`，不能证明 Windows 上孙进程会被回收。
+- **Windows 上尚未验证：** `dangerouslySkipPermissions` 是否真能放行 shell、`--add-dir`、非 ASCII 输入（中文输出解码正常）、经真实 subprocess 服务的长任务取消，以及应用里的设置卡片。
 
 ## 配置
 
@@ -144,7 +154,7 @@ Provider 不声明任何可选启动能力（`NO_START_CAPABILITIES`），且 `i
 - **没有人机审批通道**——未开启 `dangerouslySkipPermissions` 时受限工具会被拒绝，需要交互输入的任务会失败。
 - **只返回最终文本**——agy 的推理、工具流量、用量和工作区 diff 都留在产品侧。stderr 改为管道读取并转发到宿主 stderr，每次运行保留最后 8 KiB；失败时诊断信息包含退出码/信号、会话 id、步数、最后（或仍在运行）的工具、解析后的 `AGY_ERROR: {...}` 行以及 stderr 尾部。若成功结果带有 `denied_actions`，答案原样返回，并附加一条模型可见的说明列出被拒绝的工具。
 - **墙钟边界**——`maxRunMs`（默认 2 小时）是插件的墙钟兜底；`timeout` 是 agy 自己的 `--print-timeout`；`idleTimeoutMs` 是可选的 stdout 静默看门狗（默认关闭，因为 agy 在工具运行期间不输出）。在对话中取消委派会立即停止运行。插件停止或热重载会杀掉所有在跑的 agy 进程树。
-- **协议固定**——已在 `agy 1.4.11` 上验证；1.4.12 与 1.5.0 未测试。agy 会静默自动更新，升级后请重新运行 `node test/smoke.mjs`。不支持没有 `--input-format stream-json` 的版本。
+- **协议固定**——已在 `agy 1.4.11` 上验证；1.4.12 与 1.5.0 未测试。agy 会静默自动更新，升级后请重新运行 `node test/smoke.mjs`。smoke 已兼容平台差异（shell 工具标签不同；Windows 冷启动慢，运行上限更长）。不支持没有 `--input-format stream-json` 的版本。
 
 ## 测试
 
