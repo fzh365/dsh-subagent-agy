@@ -21,7 +21,7 @@
 
 ## 安装
 
-要求宿主机上有可用的 `agy`（在 `PATH` 上；否则 Linux 查 `~/.local/bin`，Windows 查 Antigravity 应用的 `%USERPROFILE%\.gemini\bin`，见 [Linux 说明](#linux-说明) 和 [Windows 说明](#windows-说明)）且已完成登录。已在 **agy 1.4.11**（Linux x86-64）上验证；Windows x86-64 上用 agy 1.5.8 跑过 smoke，未覆盖项见 Windows 说明。插件不安装 agy、不登录、不选模型、不创建或迁移 agy 的 `~/.gemini` 状态。
+要求宿主机上有可用的 `agy`（在 `PATH` 上；否则 Linux 查 `~/.local/bin`，Windows 查 Antigravity 应用的 `%USERPROFILE%\.gemini\bin`，见 [Linux 说明](#linux-说明) 和 [Windows 说明](#windows-说明)）且已完成登录。已在 **agy 1.4.11**（Linux x86-64）上验证；Windows x86-64 上用 agy 1.5.8、dsh 0.2.2-rc.3 测试过（见 Windows 说明）。插件不安装 agy、不登录、不选模型、不创建或迁移 agy 的 `~/.gemini` 状态。
 
 本包没有发布到 npm，请从 GitHub 安装。dsh 使用的 pnpm 默认会拦截 git 和 `file:` 来源的依赖构建脚本，所以先在 profile 的 `pnpm-workspace.yaml` 里放行本包（如 `~/.dsh/profiles/web/pnpm-workspace.yaml`，Windows 上是 `%USERPROFILE%\.dsh\profiles\<name>\pnpm-workspace.yaml`）：
 
@@ -99,8 +99,9 @@ pnpm add github:fzh365/dsh-subagent-agy
 - **两份安装可能版本分叉。** 应用的 `.gemini\bin\agy.exe` 跟着应用更新，独立副本靠 `agy update` 更新。PATH 中排在前面的那份才会被运行，两者版本可能不同。在意版本时把 `command` 固定为某个绝对路径。
 - **冷启动较慢。** Windows 上 agy 约 6 秒才发出 `init`，约 9 秒才有第一步。`maxRunMs` 要留足余量；在 `init` 之前触发上限时，诊断会注明“仍在启动”，而不是任务卡住。
 - **平台标签不同。** shell 工具在 Windows 上叫 `Bash`，在 Linux 上叫 `RunCommand`，`deniedTools` 和诊断里都是如此。
-- **进程树回收取决于 dsh。** 取消和上限都调用 `ctx.subprocess` 的 `terminate()`；Windows 上 agy 派生的 shell、工具等孙进程能否被回收，取决于 dsh 宿主的实现（Job Object / `taskkill /T`）。smoke 用的是原生 `child.kill()`，不能证明 Windows 上孙进程会被回收。
-- **Windows 上尚未验证：** `dangerouslySkipPermissions` 是否真能放行 shell、`--add-dir`、非 ASCII 输入（中文输出解码正常）、经真实 subprocess 服务的长任务取消，以及应用里的设置卡片。
+- **进程树回收取决于 dsh。** 取消和上限都调用 `ctx.subprocess` 的 `terminate()`。用 `@deepseek-ai/dsh-subprocess-local` 0.2.2-rc.3（Windows Job runner）实测：shell 起了一个睡眠中的孙进程后取消运行，整棵树（agy、它的 shell、睡眠进程）在 20 秒内全部退出，运行以 `aborted` 结束并保留会话 id。这是宿主实现的功劳，换别的 subprocess 实现结果可能不同。smoke 用的是原生 `child.kill()`；`test/windows-extra.mjs` 走的是真实 subprocess 服务。
+- **Windows 上另外验证过：** `dangerouslySkipPermissions` 能放行 shell 命令，不弹审批也不拒绝；`--add-dir` 让 `accept-edits` 能写到工作区之外；中文任务和多行中文输出均无乱码。
+- **Windows 上尚未验证：** 设置卡片在应用里的实际显示。它写入的 patch（`dangerouslySkipPermissions: true`）是生效的。
 
 ## 配置
 
@@ -167,7 +168,7 @@ Provider 不声明任何可选启动能力（`NO_START_CAPABILITIES`），且 `i
 - **没有人机审批通道**——未开启 `dangerouslySkipPermissions` 时受限工具会被拒绝，需要交互输入的任务会失败。
 - **只返回最终文本**——agy 的推理、工具流量、用量和工作区 diff 都留在产品侧。stderr 改为管道读取并转发到宿主 stderr，每次运行保留最后 8 KiB；失败时诊断信息包含退出码/信号、会话 id、步数、最后（或仍在运行）的工具、解析后的 `AGY_ERROR: {...}` 行以及 stderr 尾部。若成功结果带有 `denied_actions`，答案原样返回，并附加一条模型可见的说明列出被拒绝的工具。
 - **墙钟边界**——`maxRunMs`（默认 2 小时）是插件的墙钟兜底；`timeout` 是 agy 自己的 `--print-timeout`；`idleTimeoutMs` 是可选的 stdout 静默看门狗（默认关闭，因为 agy 在工具运行期间不输出）。在对话中取消委派会立即停止运行。插件停止或热重载会杀掉所有在跑的 agy 进程树。
-- **协议固定**——已在 `agy 1.4.11` 上验证；1.4.12 与 1.5.0 未测试。agy 会静默自动更新，升级后请重新运行 `node test/smoke.mjs`。smoke 已兼容平台差异（shell 工具标签不同；Windows 冷启动慢，运行上限更长）。不支持没有 `--input-format stream-json` 的版本。
+- **协议固定**——已在 `agy 1.4.11`（Linux）和 `agy 1.5.8`（Windows）上验证；其他版本未测试。agy 会静默自动更新，升级后请重新运行 `node test/smoke.mjs`。smoke 已兼容平台差异（shell 工具标签不同；Windows 冷启动慢，运行上限更长）。不支持没有 `--input-format stream-json` 的版本。
 
 ## 测试
 
@@ -177,6 +178,7 @@ node test/mock.mjs        # 子进程 mock：无 result、stdout 噪声、取消
 node test/integration.mjs # 真实 Cordis：provider/工具/上下文注册、设置页抑制、ctx.plugin 生命周期
 node test/client.mjs      # 浏览器端：bundle-config 卡片、滑块状态流转、拒绝写入、行绑定
 node test/smoke.mjs       # 真实 agy（使用其默认模型）：回答、写文件、取消
+node test/windows-extra.mjs  # 仅 Windows，走真实 dsh subprocess 服务：--add-dir、取消时回收进程树
 ```
 
 smoke 测试会消耗模型额度，且要求 `PATH` 上有已登录的 `agy`；它不传 `--model`，使用 agy 自己的默认模型。
