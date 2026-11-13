@@ -1,0 +1,79 @@
+{
+  "name": "dsh-subagent-agy",
+  "version": "0.4.4",
+  "description": "One-shot Google Antigravity CLI (agy) subagent provider for DeepSeek Harness",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/types/**/*.d.ts",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "subagent",
+    "agy",
+    "antigravity"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.1.0",
+    "@deepseek-ai/dsh-llm": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-session": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-subagent": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-subprocess": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-timeout": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-tools": "^0.2.2-rc.1"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.5"
+  },
+  "scripts": {
+    "test": "node test/unit.mjs && node test/mock.mjs && node test/integration.mjs && node test/client.mjs",
+    "test:unit": "node test/unit.mjs",
+    "test:mock": "node test/mock.mjs",
+    "test:smoke": "node test/smoke.mjs",
+    "test:client": "node test/client.mjs",
+    "test:integration": "node test/integration.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
+      ],
+      "platform": "web"
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-llm": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-session": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-subagent": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-subprocess": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-timeout": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-tools": "^0.2.2-rc.1",
+    "@deepseek-ai/cordis": "^4.1.0"
+  }
+}

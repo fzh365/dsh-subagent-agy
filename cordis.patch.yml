@@ -1,0 +1,13 @@
+# dsh bundle patch: register the agy subagent provider and expose its
+# delegation tool. Installing this package as a bundle applies both rows.
+- insert:
+    - id: subagent-agy
+      name: dsh-subagent-agy
+      config:
+        disableSlashCommands: true
+    - id: tool-subagent-agy
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: agy
+        toolName: subagent_agy
+        maxDepth: provider-managed
