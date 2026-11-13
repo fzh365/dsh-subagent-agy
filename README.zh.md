@@ -23,19 +23,32 @@
 
 要求宿主机上有可用的 `agy`（在 `PATH` 上；否则 Linux 查 `~/.local/bin`，Windows 查 Antigravity 应用的 `%USERPROFILE%\.gemini\bin`，见 [Linux 说明](#linux-说明) 和 [Windows 说明](#windows-说明)）且已完成登录。已在 **agy 1.4.11**（Linux x86-64）上验证；Windows x86-64 上用 agy 1.5.8 跑过 smoke，未覆盖项见 Windows 说明。插件不安装 agy、不登录、不选模型、不创建或迁移 agy 的 `~/.gemini` 状态。
 
-作为 profile bundle 安装：
+本包没有发布到 npm，请从 GitHub 安装。dsh 使用的 pnpm 默认会拦截 git 和 `file:` 来源的依赖构建脚本，所以先在 profile 的 `pnpm-workspace.yaml` 里放行本包（如 `~/.dsh/profiles/web/pnpm-workspace.yaml`，Windows 上是 `%USERPROFILE%\.dsh\profiles\<name>\pnpm-workspace.yaml`）：
+
+```yaml
+allowBuilds:
+  dsh-subagent-agy: true
+```
+
+只写包名即可，对任何版本和来源都生效。不加的话 `add` 会报 `ERR_PNPM_IGNORED_BUILDS`，dsh 会回滚 profile。
+
+然后作为 profile bundle 安装（`--profile` 要紧跟在 `plugin` 后面）：
 
 ```bash
-dsh plugin --profile web add dsh-subagent-agy
-# 本地目录：
-dsh plugin --profile web add /path/to/dsh-subagent-agy
+dsh plugin --profile web add github:fzh365/dsh-subagent-agy
+# 固定到某个 commit（或分支）：
+dsh plugin --profile web add github:fzh365/dsh-subagent-agy#ac37733
+# 本地目录（会复制进来，依赖也会装上）：
+dsh plugin --profile web add file:/path/to/dsh-subagent-agy
 ```
+
+不要直接写本地路径：pnpm 会把它变成 `link:` 软链接，不安装插件自己的依赖；本地目录里没有 `node_modules` 时，加载会报 `Cannot find package '@deepseek-ai/schemastery'`。出现 `Missing peer @deepseek-ai/*` 警告是正常的，这些包由 dsh 在运行时提供。
 
 或手动加入 profile：
 
 ```bash
 cd ~/.dsh/profiles/web
-pnpm add dsh-subagent-agy
+pnpm add github:fzh365/dsh-subagent-agy
 ```
 
 然后把 `"dsh-subagent-agy"` 追加到 profile `package.json` 的 `dsh.profile.bundles`。bundle patch 会注册下面两行。

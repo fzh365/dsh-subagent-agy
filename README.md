@@ -23,19 +23,32 @@ The task never enters argv, so long prompts and prompts starting with `-` are sa
 
 Requires a working `agy` (on `PATH`; otherwise `~/.local/bin` on Linux or the Antigravity app's `%USERPROFILE%\.gemini\bin` on Windows; see [Linux notes](#linux-notes) and [Windows notes](#windows-notes)), already authenticated on the host. Verified on **agy 1.4.11** (Linux x86-64); smoke-tested on Windows x86-64 with agy 1.5.8, with the gaps listed in the Windows notes. The plugin does not install agy, log in, pick a model, or create/migrate agy's `~/.gemini` state.
 
-Install the package as a profile bundle:
+The package is not published to npm; install it from GitHub. pnpm (which dsh uses) blocks dependency build scripts for git and `file:` sources by default, so first allow this package in the profile's `pnpm-workspace.yaml` (for example `~/.dsh/profiles/web/pnpm-workspace.yaml`, or `%USERPROFILE%\.dsh\profiles\<name>\pnpm-workspace.yaml` on Windows):
+
+```yaml
+allowBuilds:
+  dsh-subagent-agy: true
+```
+
+A bare package name covers any version and source. Without it, `add` fails with `ERR_PNPM_IGNORED_BUILDS` and dsh rolls the profile back.
+
+Then add it as a profile bundle (`--profile` goes right after `plugin`):
 
 ```bash
-dsh plugin --profile web add dsh-subagent-agy
-# local checkout:
-dsh plugin --profile web add /path/to/dsh-subagent-agy
+dsh plugin --profile web add github:fzh365/dsh-subagent-agy
+# pin a commit (or branch):
+dsh plugin --profile web add github:fzh365/dsh-subagent-agy#ac37733
+# local checkout (copied, so its dependencies get installed):
+dsh plugin --profile web add file:/path/to/dsh-subagent-agy
 ```
+
+Avoid a bare local path: pnpm turns it into a `link:` symlink and does not install the plugin's own dependencies, so loading fails with `Cannot find package '@deepseek-ai/schemastery'` unless the checkout has its own `node_modules`. `Missing peer @deepseek-ai/*` warnings are expected; dsh supplies those packages at runtime.
 
 Or add it to a profile manually:
 
 ```bash
 cd ~/.dsh/profiles/web
-pnpm add dsh-subagent-agy
+pnpm add github:fzh365/dsh-subagent-agy
 ```
 
 and append `"dsh-subagent-agy"` to `dsh.profile.bundles` in the profile `package.json`. The bundle patch registers both rows below.
